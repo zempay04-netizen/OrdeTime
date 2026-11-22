@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Tareas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .task-card { transition: all 0.3s ease; border-left: 5px solid #6c757d; margin-bottom: 15px; }
+        .priority-Alta { border-left-color: #dc3545; }
+        .priority-Media { border-left-color: #ffc107; }
+        .priority-Baja { border-left-color: #198754; }
+        
+        /* Animación para tareas urgentes */
+        .urgent { animation: pulse 1.5s infinite; border: 2px solid #dc3545; }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+        
+        /* Estilo para tareas finalizadas */
+        .completed-task { opacity: 0.7; text-decoration: line-through; border-left-color: #0dcaf0; border-style: dashed;}
+    </style>
+</head>
+<body>
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="h3">Mis Tareas</h1>
+            <button class="btn btn-primary rounded-circle shadow" data-bs-toggle="modal" data-bs-target="#taskModal" style="width: 50px; height: 50px; font-size: 24px; line-height: 1;">+</button>
+        </div>
+
+        <div class="row">
+            <!-- Columna de Pendientes -->
+            <div class="col-md-6 mb-4">
+                <h4 class="text-secondary mb-3">Pendientes</h4>
+                <div id="pendingTasks"></div>
+            </div>
+            <!-- Columna de Realizadas -->
+            <div class="col-md-6 mb-4">
+                <h4 class="text-success mb-3">Realizadas</h4>
+                <div id="completedTasks"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal del Formulario -->
+    <div class="modal fade" id="taskModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Nueva Tarea</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="taskForm">
+                        <div class="mb-3">
+                            <label class="form-label">Nombre de la tarea</label>
+                            <input type="text" class="form-control" id="taskName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Fecha límite</label>
+                            <input type="date" class="form-control" id="taskDate" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Prioridad</label>
+                            <select class="form-select" id="taskPriority">
+                                <option value="Alta">Alta</option>
+                                <option value="Media" selected>Media</option>
+                                <option value="Baja">Baja</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Guardar Tarea</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notificación Toast de Felicitaciones -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">
+                    🎉 ¡Felicitaciones! Has completado una tarea.
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 1. EXTRAER DE LOCALSTORAGE AL INICIAR
+        let tasks = JSON.parse(localStorage.getItem('myTasks')) || [];
+
+        // 2. FUNCIÓN CENTRAL DE GUARDADO
+        function saveTasks() {
+            localStorage.setItem('myTasks', JSON.stringify(tasks));
+            renderTasks();
+        }
+
+        function isUrgent(dateStr) {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            const taskDate = new Date(dateStr + 'T00:00:00');
+            return taskDate <= tomorrow;
+        }
+
+        // Sistema de puntuación para forzar tareas urgentes arriba
+        function calculateUrgencyScore(task) {
+            if (task.completed) return 0;
+            const taskDate = new Date(task.date + 'T00:00:00').getTime();
+            const now = new Date().setHours(0,0,0,0);
+            
+            if (taskDate <= now) return 3; // Vence hoy o vencida
+            if (taskDate <= now + 86400000) return 2; // Vence mañana
+            if (task.priority === 'Alta') return 1;
+            return 0;
+        }
+
+        function renderTasks() {
+            const pendingContainer = document.getElementById('pendingTasks');
+            const completedContainer = document.getElementById('completedTasks');
+            
+            pendingContainer.innerHTML = '';
+            completedContainer.innerHTML = '';
+
+            // Ordenar por nivel de urgencia antes de dibujar
+            tasks.sort((a, b) => calculateUrgencyScore(b) - calculateUrgencyScore(a));
+
+            tasks.forEach(task => {
+                const urgentClass = (!task.completed && isUrgent(task.date)) ? 'urgent' : '';
+                const completedClass = task.completed ? 'completed-task' : `priority-${task.priority}`;
+                
+                const card = document.createElement('div');
+                card.className = `card task-card p-3 shadow-sm ${completedClass} ${urgentClass}`;
+                
+                // Si está completada, damos opción a eliminarla para limpiar el historial
+                let actionBtn = task.completed 
+                    ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteTask(${task.id})">Eliminar</button>`
+                    : `<button class="btn btn-sm btn-success" onclick="completeTask(${task.id})">✓ Completar</button>`;
+
+                let urgentBadge = (!task.completed && isUrgent(task.date)) 
+                    ? `<span class="badge bg-danger mb-2" style="width: fit-content;">¡Próximo a vencer!</span>` 
+                    : '';
+
+                card.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="d-flex flex-column">
+                            ${urgentBadge}
+                            <h5 class="mb-1">${task.name}</h5>
+                            <small class="text-muted">Límite: ${task.date} | Prioridad: ${task.priority}</small>
+                        </div>
+                        <div>
+                            ${actionBtn}
+                        </div>
+                    </div>
+                `;
+
+                if (task.completed) {
+                    completedContainer.appendChild(card);
+                } else {
+                    pendingContainer.appendChild(card);
+                }
+            });
+        }
+
+        // Agregar nueva tarea
+        document.getElementById('taskForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const newTask = {
+                id: Date.now(), // ID único basado en el tiempo
+                name: document.getElementById('taskName').value,
+                date: document.getElementById('taskDate').value,
+                priority: document.getElementById('taskPriority').value,
+                completed: false
+            };
+
+            tasks.push(newTask);
+            saveTasks(); // Guarda y actualiza la pantalla
+            
+            this.reset();
+            const modal = bootstrap.Modal.getInstance(document.getElementById('taskModal'));
+            modal.hide();
+        });
+
+        // Marcar como completada
+        function completeTask(id) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.completed = true;
+                saveTasks();
+                
+                const toast = new bootstrap.Toast(document.getElementById('successToast'));
+                toast.show();
+            }
+        }
+
+        // Eliminar tarea (útil para que la columna de realizadas no sea infinita)
+        function deleteTask(id) {
+            tasks = tasks.filter(t => t.id !== id);
+            saveTasks();
+        }
+
+        // Ejecutar el renderizado inicial al cargar la página
+        renderTasks();
+    </script>
+</body>
+</html>
